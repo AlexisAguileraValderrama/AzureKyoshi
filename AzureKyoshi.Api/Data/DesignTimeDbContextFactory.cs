@@ -15,7 +15,8 @@ public sealed class DesignTimeDbContextFactory : IDesignTimeDbContextFactory<Azu
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
             ?? "Server=(localdb)\\mssqllocaldb;Database=AzureKyoshiDesignTime;Trusted_Connection=True;";
 
-        optionsBuilder.UseSqlServer(connectionString);
+        optionsBuilder.UseSqlServer(connectionString, sql =>
+            sql.EnableRetryOnFailure(maxRetryCount: 6, maxRetryDelay: TimeSpan.FromSeconds(15), errorNumbersToAdd: null));
         return new AzureKyoshiDbContext(optionsBuilder.Options);
     }
 }

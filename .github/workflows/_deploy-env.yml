@@ -67,7 +67,15 @@ jobs:
         run: |
           chmod +x ./artifacts/db/efbundle
           CONN_STR="Server=tcp:${{ vars.AZURE_SQL_SERVER }}.database.windows.net,1433;Initial Catalog=${{ vars.AZURE_SQL_DATABASE }};Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
-          ./artifacts/db/efbundle --connection "$CONN_STR"
+          for i in 1 2 3 4; do
+            echo "Running EF Core migrations (attempt $i/4)..."
+            if ./artifacts/db/efbundle --connection "$CONN_STR"; then
+              exit 0
+            fi
+            echo "Database may be waking from Serverless auto-pause. Waiting 20s before retry..."
+            sleep 20
+          done
+          exit 1
 
       - name: Remove temporary SQL firewall rule
         if: always() && steps.sql_fw.outputs.rule_name != ''
