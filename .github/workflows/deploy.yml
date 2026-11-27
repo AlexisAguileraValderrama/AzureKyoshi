@@ -1,0 +1,99 @@
+name: Deploy — Build Once, Promote (test → prod)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_prod:
+        description: "Also promote to prod environment after test succeeds"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: Build Artifacts (.NET 10)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore AzureKyoshi.slnx
+
+      - name: Publish Azure Functions API
+        run: |
+          dotnet publish AzureKyoshi.Api/AzureKyoshi.Api.csproj \
+            --configuration Release \
+            --no-restore \
+            -o ./out/api
+          (cd ./out/api && zip -r ../api.zip .)
+
+      - name: Publish Blazor WebAssembly Client
+        run: |
+          dotnet publish AzureKyoshi.Client/AzureKyoshi.Client.csproj \
+            --configuration Release \
+            --no-restore \
+            -o ./out/client
+
+      - name: Build EF Core Migration Bundle
+        run: |
+          dotnet tool install --global dotnet-ef --version 10.*
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet ef migrations bundle \
+            --project AzureKyoshi.Api/AzureKyoshi.Api.csproj \
+            --configuration Release \
+            --self-contained \
+            -r linux-x64 \
+            -o ./out/db/efbundle \
+            --force
+
+      - name: Upload API package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-package
+          path: ./out/api.zip
+          retention-days: 7
+
+      - name: Upload Blazor WASM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-wwwroot
+          path: ./out/client/wwwroot
+          retention-days: 7
+
+      - name: Upload EF migration bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-bundle
+          path: ./out/db/efbundle
+          retention-days: 7
+
+  # Test environment (rg-azurekyoshi-test — also shares AI Foundry + Entra ID with local Visual Studio dev)
+  deploy-test:
+    name: Deploy to test
+    needs: build
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment_name: test
+    secrets: inherit
+
+  # Isolated production environment (rg-azurekyoshi-prod — 100% duplicated resources)
+  # Set repo variable ENABLE_PROD_DEPLOY=true once rg-azurekyoshi-prod is provisioned.
+  deploy-prod:
+    name: Deploy to prod
+    needs: deploy-test
+    if: ${{ vars.ENABLE_PROD_DEPLOY == 'true' || inputs.deploy_prod == true }}
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment_name: prod
+    secrets: inherit

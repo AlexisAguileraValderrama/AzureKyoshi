@@ -1,0 +1,126 @@
+name: Reusable — Deploy Environment
+
+on:
+  workflow_call:
+    inputs:
+      environment_name:
+        description: "Target GitHub Environment name (dev or prod)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment_name }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    concurrency:
+      group: deploy-${{ inputs.environment_name }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Download EF Core migration bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: db-bundle
+          path: ./artifacts/db
+
+      - name: Download Azure Functions package
+        uses: actions/download-artifact@v4
+        with:
+          name: api-package
+          path: ./artifacts/api
+
+      - name: Download Blazor WebAssembly output
+        uses: actions/download-artifact@v4
+        with:
+          name: client-wwwroot
+          path: ./artifacts/client
+
+      - name: Azure Login (Passwordless OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Open temporary SQL firewall rule for runner
+        id: sql_fw
+        shell: bash
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          RULE_NAME="GitHubActions-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "rule_name=$RULE_NAME" >> "$GITHUB_OUTPUT"
+          az sql server firewall-rule create \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --server "${{ vars.AZURE_SQL_SERVER }}" \
+            --name "$RULE_NAME" \
+            --start-ip-address "$RUNNER_IP" \
+            --end-ip-address "$RUNNER_IP" \
+            --output none
+
+      - name: Apply EF Core migrations to Azure SQL
+        shell: bash
+        run: |
+          chmod +x ./artifacts/db/efbundle
+          CONN_STR="Server=tcp:${{ vars.AZURE_SQL_SERVER }}.database.windows.net,1433;Initial Catalog=${{ vars.AZURE_SQL_DATABASE }};Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Authentication=Active Directory Default;"
+          ./artifacts/db/efbundle --connection "$CONN_STR"
+
+      - name: Remove temporary SQL firewall rule
+        if: always() && steps.sql_fw.outputs.rule_name != ''
+        shell: bash
+        run: |
+          az sql server firewall-rule delete \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --server "${{ vars.AZURE_SQL_SERVER }}" \
+            --name "${{ steps.sql_fw.outputs.rule_name }}" \
+            --output none || true
+
+      - name: Deploy Azure Functions API (.NET 10 Flex Consumption)
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ vars.AZURE_FUNCTIONAPP_NAME }}
+          package: ./artifacts/api/api.zip
+          sku: flexconsumption
+
+      - name: Stamp environment config for Blazor WebAssembly
+        shell: bash
+        run: |
+          rm -f ./artifacts/client/appsettings.Development.json
+          cat << 'EOF' > ./artifacts/client/appsettings.json
+          {
+            "ApiBaseUrl": "${{ vars.CLIENT_API_BASE_URL }}",
+            "Authentication": {
+              "UseDevMode": false
+            },
+            "AzureAd": {
+              "Authority": "https://login.microsoftonline.com/${{ vars.AZURE_TENANT_ID }}",
+              "ClientId": "${{ vars.CLIENT_SPA_CLIENT_ID }}",
+              "ValidateAuthority": true
+            },
+            "ApiScopes": [
+              "${{ vars.CLIENT_API_SCOPE }}"
+            ]
+          }
+          EOF
+
+      - name: Deploy Blazor WebAssembly to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: "upload"
+          app_location: "./artifacts/client"
+          skip_app_build: true
+
+      - name: Post-deploy smoke verification
+        shell: bash
+        run: |
+          API_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ vars.CLIENT_API_BASE_URL }}api/status")
+          echo "Unauthenticated API /api/status HTTP code: $API_STATUS (expected 401)"
+          if [ "$API_STATUS" != "401" ]; then
+            echo "WARNING: Expected 401 Unauthorized when calling /api/status without a Bearer token, got $API_STATUS."
+            exit 1
+          fi

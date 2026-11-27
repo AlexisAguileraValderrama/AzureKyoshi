@@ -1,0 +1,40 @@
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData">
+                <NotAuthorized>
+                    <div class="auth-gate">
+                        <div class="auth-card">
+                            <div class="brand-mark large">
+                                <svg width="34" height="34" viewBox="0 0 32 32" fill="none">
+                                    <rect width="32" height="32" rx="8" fill="#0078D4" />
+                                    <path d="M17.2 6L9 23.5h5.2l1.6-3.8h5.7l1.3 3.8H26L19.8 6h-2.6zm-.3 10.3l1.9-5.1 1.7 5.1h-3.6z" fill="white" />
+                                </svg>
+                                <span>Azure Kyoshi</span>
+                            </div>
+                            <h2>Sign in with Microsoft Entra ID</h2>
+                            <p>Sign in with your Microsoft account to access your saved Azure study modules, folders, practice quizzes, and AI Q&amp;A history.</p>
+                            <a class="btn btn-primary" href="authentication/login">Sign in with Entra ID</a>
+                        </div>
+                    </div>
+                </NotAuthorized>
+                <Authorizing>
+                    <div class="boot-screen">
+                        <div class="boot-spinner"></div>
+                        <p class="boot-subtitle">Signing you in with Microsoft Entra ID...</p>
+                    </div>
+                </Authorizing>
+            </AuthorizeRouteView>
+        </Found>
+        <NotFound>
+            <PageTitle>Not Found — Azure Kyoshi</PageTitle>
+            <div class="auth-gate">
+                <div class="auth-card">
+                    <h2>Page not found</h2>
+                    <p>We couldn't find the study page you requested.</p>
+                    <a class="btn btn-primary" href="/">Return to Study Studio</a>
+                </div>
+            </div>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

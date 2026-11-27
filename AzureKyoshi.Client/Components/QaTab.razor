@@ -1,0 +1,132 @@
+@inject MarkdownRenderer Markdown
+
+<div class="qa-layout">
+    <div class="qa-messages">
+        @if (Module.QaMessages.Count == 0)
+        {
+            <div class="qa-welcome">
+                <div class="qa-welcome-icon">✦</div>
+                <h3>Ask Azure Kyoshi about "@Module.Title"</h3>
+                <p class="muted">
+                    Ask follow-up questions about exam scenarios, architecture trade-offs, SKU tiers, or CLI commands.
+                    Answers are grounded in this module's Microsoft Learn content and saved for future review.
+                </p>
+
+                <div class="qa-suggestions">
+                    @foreach (var prompt in StarterQuestions)
+                    {
+                        <button class="suggestion-chip" @onclick="() => AskPresetAsync(prompt)" disabled="@IsSending">
+                            @prompt
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            @foreach (var msg in Module.QaMessages)
+            {
+                var isUser = msg.Role.Equals("user", StringComparison.OrdinalIgnoreCase);
+                <div class="chat-row @(isUser ? "user" : "assistant")">
+                    <div class="chat-avatar @(isUser ? "user" : "assistant")">
+                        @(isUser ? "You" : "AI")
+                    </div>
+                    <div class="chat-bubble @(isUser ? "user" : "assistant")">
+                        @if (isUser)
+                        {
+                            <p class="chat-user-text">@msg.Content</p>
+                        }
+                        else
+                        {
+                            <div class="markdown-body compact">
+                                @Markdown.RenderToHtml(msg.Content)
+                            </div>
+                        }
+                        <span class="chat-time">@msg.CreatedAtUtc.ToLocalTime().ToString("h:mm tt")</span>
+                    </div>
+                </div>
+            }
+
+            @if (IsSending)
+            {
+                <div class="chat-row assistant">
+                    <div class="chat-avatar assistant">AI</div>
+                    <div class="chat-bubble assistant thinking">
+                        <div class="spinner-sm"></div>
+                        <span>Reviewing Microsoft Learn module content...</span>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <form class="qa-composer" @onsubmit="SendQuestionAsync">
+        <textarea class="qa-input"
+                  rows="2"
+                  placeholder="Ask a question about @Module.Title... (Enter to send, Shift+Enter for new line)"
+                  @bind="DraftQuestion"
+                  @bind:event="oninput"
+                  @onkeydown="HandleKeyDownAsync"
+                  disabled="@IsSending"></textarea>
+        <button type="submit"
+                class="btn btn-primary qa-send-btn"
+                disabled="@(IsSending || string.IsNullOrWhiteSpace(DraftQuestion))">
+            @(IsSending ? "Thinking..." : "Ask AI →")
+        </button>
+    </form>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public StudyModuleDetailDto Module { get; set; } = null!;
+    [Parameter] public EventCallback<string> OnAskQuestion { get; set; }
+
+    private string DraftQuestion { get; set; } = string.Empty;
+    private bool IsSending { get; set; }
+
+    private string[] StarterQuestions =>
+    [
+        $"What are the most common Azure certification exam traps in {Module.Title}?",
+        $"Can you walk through a real-world architecture scenario using {Module.Title}?",
+        "Compare the key SKU/pricing tiers and security best practices here.",
+        "Give me a quick cheat sheet of the most important Portal and Azure CLI steps."
+    ];
+
+    private async Task AskPresetAsync(string question)
+    {
+        DraftQuestion = question;
+        await SendQuestionAsync();
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey && !IsSending && !string.IsNullOrWhiteSpace(DraftQuestion))
+        {
+            await SendQuestionAsync();
+        }
+    }
+
+    private async Task SendQuestionAsync()
+    {
+        var question = DraftQuestion.Trim();
+        if (string.IsNullOrWhiteSpace(question) || IsSending)
+        {
+            return;
+        }
+
+        IsSending = true;
+        DraftQuestion = string.Empty;
+        try
+        {
+            await OnAskQuestion.InvokeAsync(question);
+        }
+        catch
+        {
+            DraftQuestion = question;
+            throw;
+        }
+        finally
+        {
+            IsSending = false;
+        }
+    }
+}

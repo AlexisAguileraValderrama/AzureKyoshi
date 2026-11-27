@@ -1,0 +1,113 @@
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="OnClose">
+        <div class="modal-dialog" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h2>@(EditingFolder is null ? "Create Study Folder" : "Edit Study Folder")</h2>
+                <button class="icon-close" @onclick="OnClose">✕</button>
+            </div>
+
+            <EditForm Model="FormModel" OnValidSubmit="SubmitAsync">
+                <DataAnnotationsValidator />
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="folderName">Folder Name *</label>
+                        <InputText id="folderName"
+                                   class="form-control"
+                                   @bind-Value="FormModel.Name"
+                                   placeholder="e.g. AZ-104 Administrator Track" />
+                        <ValidationMessage For="() => FormModel.Name" />
+                    </div>
+
+                    <div class="form-group">
+                        <label for="folderCert">Certification Tag (Optional)</label>
+                        <InputText id="folderCert"
+                                   class="form-control"
+                                   @bind-Value="FormModel.CertificationCode"
+                                   placeholder="e.g. AZ-104" />
+                    </div>
+
+                    <div class="form-group">
+                        <label>Folder Color</label>
+                        <div class="swatch-row">
+                            @foreach (var color in Swatches)
+                            {
+                                <button type="button"
+                                        class="swatch @(FormModel.ColorHex == color ? "selected" : "")"
+                                        style="background-color: @color"
+                                        @onclick="() => FormModel.ColorHex = color"
+                                        title="@color">
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+                    {
+                        <div class="alert-error">@ErrorMessage</div>
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" @onclick="OnClose" disabled="@IsSaving">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@IsSaving">
+                        @(IsSaving ? "Saving..." : (EditingFolder is null ? "Create Folder" : "Save Changes"))
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public FolderDto? EditingFolder { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<CreateFolderRequest> OnSave { get; set; }
+
+    private CreateFolderRequest FormModel { get; set; } = new();
+    private bool IsSaving { get; set; }
+    private string? ErrorMessage { get; set; }
+    private bool _wasOpen;
+
+    private static readonly string[] Swatches =
+    [
+        "#0078D4", "#0EA5E9", "#10B981", "#8B5CF6", "#F59E0B", "#EC4899"
+    ];
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            FormModel = EditingFolder is null
+                ? new CreateFolderRequest { ColorHex = "#0078D4" }
+                : new CreateFolderRequest
+                {
+                    Name = EditingFolder.Name,
+                    CertificationCode = EditingFolder.CertificationCode,
+                    ColorHex = EditingFolder.ColorHex
+                };
+            ErrorMessage = null;
+            IsSaving = false;
+        }
+        _wasOpen = IsOpen;
+    }
+
+    private async Task SubmitAsync()
+    {
+        IsSaving = true;
+        ErrorMessage = null;
+        try
+        {
+            await OnSave.InvokeAsync(FormModel);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+}

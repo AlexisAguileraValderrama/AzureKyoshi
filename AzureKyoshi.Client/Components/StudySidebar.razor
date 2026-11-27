@@ -1,0 +1,229 @@
+@inject ClientAuthConfig AuthConfig
+
+<aside class="sidebar @(IsMobileOpen ? "open" : "")">
+    <div class="sidebar-top">
+        <div class="sidebar-brand" @onclick="OnGoHome" role="button" title="Go to Dashboard">
+            <div class="brand-mark">
+                <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+                    <rect width="32" height="32" rx="8" fill="#0078D4" />
+                    <path d="M17.2 6L9 23.5h5.2l1.6-3.8h5.7l1.3 3.8H26L19.8 6h-2.6zm-.3 10.3l1.9-5.1 1.7 5.1h-3.6z" fill="white" />
+                </svg>
+                <div>
+                    <span class="brand-title">Azure Kyoshi</span>
+                    <span class="brand-sub">Certification Studio</span>
+                </div>
+            </div>
+        </div>
+
+        <button class="btn btn-primary btn-full new-module-btn" @onclick="OnOpenNewModule">
+            <span class="icon-plus">+</span> Study New Module
+        </button>
+
+        <div class="sidebar-search">
+            <input type="search"
+                   placeholder="Filter studied modules..."
+                   value="@SearchTerm"
+                   @oninput="OnSearchInput" />
+        </div>
+    </div>
+
+    <div class="sidebar-scroll">
+        <!-- Folders Section -->
+        <div class="sidebar-section">
+            <div class="section-header">
+                <span>FOLDERS (@Folders.Count)</span>
+                <button class="icon-btn" title="Create folder" @onclick="OnOpenCreateFolder">+ New</button>
+            </div>
+
+            @if (Folders.Count == 0)
+            {
+                <div class="sidebar-empty-hint">
+                    Group modules by cert (e.g. AZ-104, AZ-305)
+                </div>
+            }
+            else
+            {
+                @foreach (var folder in Folders)
+                {
+                    var folderModules = FilteredModules.Where(m => m.FolderId == folder.Id).ToList();
+                    var isExpanded = ExpandedFolderIds.Contains(folder.Id) || !string.IsNullOrWhiteSpace(SearchTerm);
+
+                    <div class="folder-block">
+                        <div class="folder-row">
+                            <button class="folder-toggle" @onclick="() => ToggleFolder(folder.Id)">
+                                <span class="chevron @(isExpanded ? "expanded" : "")">▸</span>
+                                <span class="folder-dot" style="background-color: @folder.ColorHex"></span>
+                                <span class="folder-name" title="@folder.Name">@folder.Name</span>
+                                @if (!string.IsNullOrWhiteSpace(folder.CertificationCode))
+                                {
+                                    <span class="cert-mini">@folder.CertificationCode</span>
+                                }
+                                <span class="count-pill">@folderModules.Count</span>
+                            </button>
+                            <div class="folder-actions">
+                                <button class="mini-action" title="Edit folder" @onclick="() => OnEditFolder.InvokeAsync(folder)">✎</button>
+                                <button class="mini-action danger" title="Delete folder" @onclick="() => OnDeleteFolder.InvokeAsync(folder)">✕</button>
+                            </div>
+                        </div>
+
+                        @if (isExpanded)
+                        {
+                            <div class="folder-children">
+                                @if (folderModules.Count == 0)
+                                {
+                                    <div class="folder-empty-child">No modules in folder</div>
+                                }
+                                else
+                                {
+                                    @foreach (var mod in folderModules)
+                                    {
+                                        <button class="module-nav-item @(SelectedModuleId == mod.Id ? "active" : "")"
+                                                @onclick="() => OnSelectModule.InvokeAsync(mod.Id)">
+                                            <span class="module-nav-title">@mod.Title</span>
+                                            <span class="module-nav-meta">
+                                                @if (!string.IsNullOrWhiteSpace(mod.CertificationCode))
+                                                {
+                                                    <span class="cert-mini">@mod.CertificationCode</span>
+                                                }
+                                                <span>@mod.QuizCount quiz@(mod.QuizCount == 1 ? "" : "zes")</span>
+                                                @if (mod.BestQuizScorePercent.HasValue)
+                                                {
+                                                    <span class="score-mini @(mod.BestQuizScorePercent >= 70 ? "pass" : "warn")">@mod.BestQuizScorePercent%</span>
+                                                }
+                                            </span>
+                                        </button>
+                                    }
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+        <!-- Uncategorized / All Modules Section -->
+        <div class="sidebar-section">
+            <div class="section-header">
+                <span>@(Folders.Count > 0 ? "UNCATEGORIZED MODULES" : "STUDIED MODULES") (@UncategorizedModules.Count)</span>
+            </div>
+
+            @if (UncategorizedModules.Count == 0)
+            {
+                <div class="sidebar-empty-hint">
+                    @(Modules.Count == 0
+                        ? "No modules studied yet. Click 'Study New Module' to begin."
+                        : "All matching modules are organized in folders.")
+                </div>
+            }
+            else
+            {
+                <div class="module-list">
+                    @foreach (var mod in UncategorizedModules)
+                    {
+                        <button class="module-nav-item @(SelectedModuleId == mod.Id ? "active" : "")"
+                                @onclick="() => OnSelectModule.InvokeAsync(mod.Id)">
+                            <span class="module-nav-title">@mod.Title</span>
+                            <span class="module-nav-meta">
+                                @if (!string.IsNullOrWhiteSpace(mod.CertificationCode))
+                                {
+                                    <span class="cert-mini">@mod.CertificationCode</span>
+                                }
+                                <span>@mod.QuizCount quiz@(mod.QuizCount == 1 ? "" : "zes")</span>
+                                @if (mod.BestQuizScorePercent.HasValue)
+                                {
+                                    <span class="score-mini @(mod.BestQuizScorePercent >= 70 ? "pass" : "warn")">@mod.BestQuizScorePercent%</span>
+                                }
+                            </span>
+                        </button>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <!-- Runtime & Auth Footer -->
+    <div class="sidebar-footer">
+        @if (RuntimeStatus is not null)
+        {
+            <div class="runtime-pills">
+                <span class="runtime-pill @(RuntimeStatus.AiMode.Contains("Foundry") ? "ok" : "demo")" title="AI Model: @RuntimeStatus.AiDeploymentName">
+                    @RuntimeStatus.AiMode
+                </span>
+                <span class="runtime-pill neutral" title="Database Provider">
+                    @RuntimeStatus.DatabaseProvider
+                </span>
+            </div>
+            <div class="user-row">
+                <div class="user-avatar">@GetInitials(RuntimeStatus.CurrentUserName)</div>
+                <div class="user-info">
+                    <div class="user-name">@RuntimeStatus.CurrentUserName</div>
+                    <div class="user-mode">@RuntimeStatus.AuthMode</div>
+                </div>
+                @if (!AuthConfig.UseDevMode)
+                {
+                    <a class="signout-link" href="authentication/logout" title="Sign out">Out</a>
+                }
+            </div>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter] public List<FolderDto> Folders { get; set; } = [];
+    [Parameter] public List<StudyModuleSummaryDto> Modules { get; set; } = [];
+    [Parameter] public Guid? SelectedModuleId { get; set; }
+    [Parameter] public AppRuntimeStatusDto? RuntimeStatus { get; set; }
+    [Parameter] public bool IsMobileOpen { get; set; }
+
+    [Parameter] public EventCallback OnGoHome { get; set; }
+    [Parameter] public EventCallback OnOpenNewModule { get; set; }
+    [Parameter] public EventCallback OnOpenCreateFolder { get; set; }
+    [Parameter] public EventCallback<FolderDto> OnEditFolder { get; set; }
+    [Parameter] public EventCallback<FolderDto> OnDeleteFolder { get; set; }
+    [Parameter] public EventCallback<Guid> OnSelectModule { get; set; }
+
+    private string SearchTerm { get; set; } = string.Empty;
+    private HashSet<Guid> ExpandedFolderIds { get; } = [];
+
+    protected override void OnParametersSet()
+    {
+        // Auto-expand folders on initial load so nested modules are immediately discoverable
+        foreach (var folder in Folders)
+        {
+            if (SelectedModuleId.HasValue && Modules.Any(m => m.Id == SelectedModuleId && m.FolderId == folder.Id))
+            {
+                ExpandedFolderIds.Add(folder.Id);
+            }
+        }
+    }
+
+    private IEnumerable<StudyModuleSummaryDto> FilteredModules =>
+        string.IsNullOrWhiteSpace(SearchTerm)
+            ? Modules
+            : Modules.Where(m =>
+                m.Title.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                m.RequestedTopic.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(m.CertificationCode) && m.CertificationCode.Contains(SearchTerm, StringComparison.OrdinalIgnoreCase)));
+
+    private List<StudyModuleSummaryDto> UncategorizedModules =>
+        FilteredModules.Where(m => m.FolderId is null).ToList();
+
+    private void ToggleFolder(Guid folderId)
+    {
+        if (!ExpandedFolderIds.Remove(folderId))
+        {
+            ExpandedFolderIds.Add(folderId);
+        }
+    }
+
+    private void OnSearchInput(ChangeEventArgs e) => SearchTerm = e.Value?.ToString() ?? string.Empty;
+
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "AK";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2
+            ? $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}"
+            : name[..Math.Min(2, name.Length)].ToUpperInvariant();
+    }
+}

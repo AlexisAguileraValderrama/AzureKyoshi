@@ -1,0 +1,93 @@
+@inject MarkdownRenderer Markdown
+
+<div class="summary-container">
+    <div class="summary-meta-bar">
+        <div class="badge-group">
+            <span class="status-badge @(Module.RetrievedViaMcp ? "mcp" : "neutral")">
+                @(Module.RetrievedViaMcp ? "✓ Microsoft Learn MCP" : "Microsoft Learn Reference")
+            </span>
+            <span class="status-badge @(Module.GeneratedWithFoundryAi ? "ai" : "demo")">
+                @(Module.GeneratedWithFoundryAi ? "✦ Azure AI Foundry" : "Demo AI Mode")
+            </span>
+            <span class="meta-timestamp">Updated @Module.UpdatedAtUtc.ToLocalTime().ToString("MMM d, yyyy · h:mm tt")</span>
+        </div>
+
+        <button class="btn btn-secondary btn-sm" @onclick="() => ShowRegenerate = !ShowRegenerate" disabled="@IsRegenerating">
+            @(ShowRegenerate ? "Hide Refine" : "↻ Refine Summary")
+        </button>
+    </div>
+
+    @if (ShowRegenerate)
+    {
+        <div class="refine-box">
+            <label for="refineFocus">Optional focus instructions for AI regeneration</label>
+            <div class="refine-row">
+                <input id="refineFocus"
+                       class="form-control"
+                       @bind="FocusInstructions"
+                       placeholder="e.g. Emphasize Azure CLI commands, RBAC permissions, and exam traps"
+                       disabled="@IsRegenerating" />
+                <button class="btn btn-primary" @onclick="RegenerateAsync" disabled="@IsRegenerating">
+                    @(IsRegenerating ? "Regenerating..." : "Regenerate")
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (Module.Sources.Count > 0)
+    {
+        <div class="sources-strip">
+            <span class="sources-label">Official Sources:</span>
+            <div class="sources-links">
+                @foreach (var src in Module.Sources)
+                {
+                    <a class="source-pill" href="@src.Url" target="_blank" rel="noopener noreferrer">
+                        <span>@src.Title</span>
+                        <span class="ext-icon">↗</span>
+                    </a>
+                }
+            </div>
+        </div>
+    }
+
+    <article class="markdown-body study-paper">
+        @Markdown.RenderToHtml(Module.SummaryMarkdown)
+    </article>
+
+    <div class="next-step-cta">
+        <div>
+            <strong>Ready to test your knowledge?</strong>
+            <p class="muted">You already have @Module.Quizzes.Count practice quiz@(Module.Quizzes.Count == 1 ? "" : "zes") ready for this module, or ask the Q&amp;A Tutor anything unclear.</p>
+        </div>
+        <div class="cta-buttons">
+            <button class="btn btn-primary" @onclick="OnGoToQuizzes">Take Practice Quiz →</button>
+            <button class="btn btn-secondary" @onclick="OnGoToQa">Ask Q&amp;A Tutor</button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public StudyModuleDetailDto Module { get; set; } = null!;
+    [Parameter] public EventCallback<string?> OnRegenerateSummary { get; set; }
+    [Parameter] public EventCallback OnGoToQuizzes { get; set; }
+    [Parameter] public EventCallback OnGoToQa { get; set; }
+
+    private bool ShowRegenerate { get; set; }
+    private string? FocusInstructions { get; set; }
+    private bool IsRegenerating { get; set; }
+
+    private async Task RegenerateAsync()
+    {
+        IsRegenerating = true;
+        try
+        {
+            await OnRegenerateSummary.InvokeAsync(FocusInstructions);
+            ShowRegenerate = false;
+            FocusInstructions = null;
+        }
+        finally
+        {
+            IsRegenerating = false;
+        }
+    }
+}

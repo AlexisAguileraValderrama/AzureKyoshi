@@ -1,0 +1,175 @@
+@if (IsOpen)
+{
+    <div class="modal-backdrop" @onclick="CloseIfNotBusy">
+        <div class="modal-dialog modal-lg" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div>
+                    <h2>Study a New Azure Module</h2>
+                    <p class="muted">We'll extract official content via Microsoft Learn MCP, synthesize a certification summary, and generate your initial practice quiz.</p>
+                </div>
+                <button class="icon-close" @onclick="CloseIfNotBusy" disabled="@IsSubmitting">✕</button>
+            </div>
+
+            <EditForm Model="Model" OnValidSubmit="SubmitAsync">
+                <DataAnnotationsValidator />
+
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="moduleName">Microsoft Learn Module Name or Topic *</label>
+                        <InputText id="moduleName"
+                                   class="form-control"
+                                   @bind-Value="Model.ModuleName"
+                                   placeholder="e.g. Configure virtual networks, Manage Microsoft Entra ID identities, or a learn.microsoft.com URL"
+                                   disabled="@IsSubmitting" />
+                        <ValidationMessage For="() => Model.ModuleName" />
+                    </div>
+
+                    <div class="quick-picks">
+                        <span class="quick-picks-label">Popular Azure modules:</span>
+                        <div class="chip-row">
+                            @foreach (var sample in SampleModules)
+                            {
+                                <button type="button"
+                                        class="suggestion-chip"
+                                        disabled="@IsSubmitting"
+                                        @onclick="() => ApplySample(sample.Topic, sample.Cert)">
+                                    <span class="cert-mini">@sample.Cert</span> @sample.Topic
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="form-grid-3">
+                        <div class="form-group">
+                            <label for="certCode">Certification (Optional)</label>
+                            <InputText id="certCode"
+                                       class="form-control"
+                                       @bind-Value="Model.CertificationCode"
+                                       placeholder="AZ-104, AZ-204, AZ-305..."
+                                       disabled="@IsSubmitting" />
+                        </div>
+
+                        <div class="form-group">
+                            <label for="folderSelect">Save to Folder</label>
+                            <InputSelect id="folderSelect"
+                                         class="form-control"
+                                         @bind-Value="Model.FolderId"
+                                         disabled="@IsSubmitting">
+                                <option value="">Uncategorized</option>
+                                @foreach (var folder in Folders)
+                                {
+                                    <option value="@folder.Id">@folder.Name</option>
+                                }
+                            </InputSelect>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="initialQuizCount">Initial Quiz Questions</label>
+                            <InputSelect id="initialQuizCount"
+                                         class="form-control"
+                                         @bind-Value="Model.InitialQuestionCount"
+                                         disabled="@IsSubmitting">
+                                <option value="5">5 questions (Default)</option>
+                                <option value="8">8 questions</option>
+                                <option value="10">10 questions</option>
+                            </InputSelect>
+                        </div>
+                    </div>
+
+                    @if (IsSubmitting)
+                    {
+                        <div class="progress-banner">
+                            <div class="spinner-sm"></div>
+                            <div>
+                                <strong>Building your study pack...</strong>
+                                <div class="muted">Querying Microsoft Learn MCP → Generating study summary → Authoring initial @Model.InitialQuestionCount-question quiz</div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+                    {
+                        <div class="alert-error">@ErrorMessage</div>
+                    }
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-ghost" @onclick="CloseIfNotBusy" disabled="@IsSubmitting">Cancel</button>
+                    <button type="submit" class="btn btn-primary" disabled="@IsSubmitting">
+                        @(IsSubmitting ? "Generating Study Pack..." : "Fetch & Generate Summary + Quiz")
+                    </button>
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public List<FolderDto> Folders { get; set; } = [];
+    [Parameter] public Guid? DefaultFolderId { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    [Parameter] public EventCallback<CreateStudyModuleRequest> OnSubmit { get; set; }
+
+    private CreateStudyModuleRequest Model { get; set; } = new();
+    private bool IsSubmitting { get; set; }
+    private string? ErrorMessage { get; set; }
+    private bool _wasOpen;
+
+    private static readonly (string Topic, string Cert)[] SampleModules =
+    [
+        ("Configure Microsoft Entra ID identities", "AZ-104"),
+        ("Configure Azure virtual networks", "AZ-104"),
+        ("Deploy Azure App Service web apps", "AZ-204"),
+        ("Design Azure storage solutions", "AZ-305"),
+        ("Describe Azure core architectural components", "AZ-900"),
+        ("Develop generative AI apps in Azure AI Foundry", "AI-102")
+    ];
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            Model = new CreateStudyModuleRequest
+            {
+                FolderId = DefaultFolderId,
+                InitialQuestionCount = 5
+            };
+            ErrorMessage = null;
+            IsSubmitting = false;
+        }
+        _wasOpen = IsOpen;
+    }
+
+    private void ApplySample(string topic, string cert)
+    {
+        Model.ModuleName = topic;
+        Model.CertificationCode = cert;
+    }
+
+    private async Task SubmitAsync()
+    {
+        ErrorMessage = null;
+        IsSubmitting = true;
+        try
+        {
+            await OnSubmit.InvokeAsync(Model);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
+    }
+
+    private async Task CloseIfNotBusy()
+    {
+        if (!IsSubmitting)
+        {
+            await OnClose.InvokeAsync();
+        }
+    }
+}

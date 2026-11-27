@@ -1,0 +1,520 @@
+@page "/"
+@attribute [Authorize]
+@inject StudyApiClient Api
+
+<PageTitle>@(ActiveModule is null ? "Azure Kyoshi — Azure Certification Study Studio" : $"{ActiveModule.Title} — Azure Kyoshi")</PageTitle>
+
+<div class="app-shell @(IsDarkTheme ? "theme-dark" : "theme-light")">
+    <StudySidebar Folders="Folders"
+                  Modules="Modules"
+                  SelectedModuleId="ActiveModule?.Id"
+                  RuntimeStatus="RuntimeStatus"
+                  IsMobileOpen="IsMobileSidebarOpen"
+                  OnGoHome="GoToDashboard"
+                  OnOpenNewModule="OpenNewModuleModal"
+                  OnOpenCreateFolder="OpenCreateFolderModal"
+                  OnEditFolder="OpenEditFolderModal"
+                  OnDeleteFolder="DeleteFolderAsync"
+                  OnSelectModule="SelectModuleAsync" />
+
+    @if (IsMobileSidebarOpen)
+    {
+        <div class="mobile-overlay" @onclick="() => IsMobileSidebarOpen = false"></div>
+    }
+
+    <main class="workspace">
+        <!-- Top Utility Header -->
+        <header class="workspace-topbar">
+            <div class="topbar-left">
+                <button class="mobile-menu-btn" @onclick="() => IsMobileSidebarOpen = !IsMobileSidebarOpen" title="Toggle sidebar">☰</button>
+                @if (ActiveModule is not null)
+                {
+                    <div class="breadcrumb">
+                        <button class="crumb-link" @onclick="GoToDashboard">Studio</button>
+                        <span class="crumb-sep">/</span>
+                        @if (!string.IsNullOrWhiteSpace(ActiveModule.FolderName))
+                        {
+                            <span class="crumb-folder">@ActiveModule.FolderName</span>
+                            <span class="crumb-sep">/</span>
+                        }
+                        <span class="crumb-current">@ActiveModule.Title</span>
+                    </div>
+                }
+                else
+                {
+                    <span class="topbar-title">Certification Study Dashboard</span>
+                }
+            </div>
+
+            <div class="topbar-right">
+                <button class="btn btn-ghost btn-sm" @onclick="ToggleTheme" title="Toggle Light / Dark theme">
+                    @(IsDarkTheme ? "☀ Light" : "☾ Dark")
+                </button>
+                <button class="btn btn-primary btn-sm" @onclick="OpenNewModuleModal">+ Study Module</button>
+            </div>
+        </header>
+
+        @if (!string.IsNullOrWhiteSpace(BannerError))
+        {
+            <div class="global-banner error">
+                <span>@BannerError</span>
+                <button @onclick="() => BannerError = null">✕</button>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(BannerNotice))
+        {
+            <div class="global-banner info">
+                <span>@BannerNotice</span>
+                <button @onclick="() => BannerNotice = null">✕</button>
+            </div>
+        }
+
+        <div class="workspace-content">
+            @if (IsLoadingInitial)
+            {
+                <div class="loading-state">
+                    <div class="boot-spinner"></div>
+                    <p class="muted">Loading your study workspace...</p>
+                </div>
+            }
+            else if (IsLoadingModule)
+            {
+                <div class="loading-state">
+                    <div class="boot-spinner"></div>
+                    <p class="muted">Loading module details...</p>
+                </div>
+            }
+            else if (ActiveModule is null)
+            {
+                <!-- Welcome / Overview Dashboard -->
+                <div class="dashboard">
+                    <section class="hero-card">
+                        <div class="hero-badge">Microsoft Learn MCP + Azure AI Foundry</div>
+                        <h1>Master Azure Certifications, One Module at a Time</h1>
+                        <p>
+                            Enter any Microsoft Learn Azure module name. Azure Kyoshi extracts official documentation via MCP,
+                            writes a focused certification study guide, generates an initial 5-question quiz (plus unlimited extra quizzes),
+                            and gives you a module-grounded AI Q&amp;A tutor.
+                        </p>
+                        <div class="hero-actions">
+                            <button class="btn btn-primary btn-lg" @onclick="OpenNewModuleModal">+ Study Your Next Module</button>
+                            <button class="btn btn-secondary btn-lg" @onclick="OpenCreateFolderModal">+ Organize with Folders</button>
+                        </div>
+                    </section>
+
+                    <section class="stats-grid">
+                        <div class="stat-card">
+                            <span class="stat-label">Modules Studied</span>
+                            <span class="stat-value">@Modules.Count</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Study Folders</span>
+                            <span class="stat-value">@Folders.Count</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Practice Quizzes</span>
+                            <span class="stat-value">@Modules.Sum(m => m.QuizCount)</span>
+                        </div>
+                        <div class="stat-card">
+                            <span class="stat-label">Average Best Score</span>
+                            <span class="stat-value">@AverageBestScoreDisplay</span>
+                        </div>
+                    </section>
+
+                    @if (Modules.Count > 0)
+                    {
+                        <section class="recent-section">
+                            <div class="recent-header">
+                                <h2>Recently Studied Modules</h2>
+                            </div>
+                            <div class="module-cards-grid">
+                                @foreach (var mod in Modules.Take(6))
+                                {
+                                    <button class="module-card" @onclick="() => SelectModuleAsync(mod.Id)">
+                                        <div class="module-card-top">
+                                            @if (!string.IsNullOrWhiteSpace(mod.CertificationCode))
+                                            {
+                                                <span class="cert-badge">@mod.CertificationCode</span>
+                                            }
+                                            @if (!string.IsNullOrWhiteSpace(mod.FolderName))
+                                            {
+                                                <span class="folder-tag">@mod.FolderName</span>
+                                            }
+                                        </div>
+                                        <h3>@mod.Title</h3>
+                                        <div class="module-card-footer">
+                                            <span>@mod.QuizCount quiz@(mod.QuizCount == 1 ? "" : "zes") · @mod.QaMessageCount Q&amp;A</span>
+                                            @if (mod.BestQuizScorePercent.HasValue)
+                                            {
+                                                <span class="score-mini @(mod.BestQuizScorePercent >= 70 ? "pass" : "warn")">Best: @mod.BestQuizScorePercent%</span>
+                                            }
+                                        </div>
+                                    </button>
+                                }
+                            </div>
+                        </section>
+                    }
+                </div>
+            }
+            else
+            {
+                <!-- Active Module Workspace -->
+                <div class="module-workspace">
+                    <div class="module-header">
+                        <div class="module-header-main">
+                            <div class="module-title-row">
+                                @if (!string.IsNullOrWhiteSpace(ActiveModule.CertificationCode))
+                                {
+                                    <span class="cert-badge">@ActiveModule.CertificationCode</span>
+                                }
+                                <h1>@ActiveModule.Title</h1>
+                            </div>
+                            <p class="muted">Requested topic: <strong>@ActiveModule.RequestedTopic</strong></p>
+                        </div>
+
+                        <div class="module-header-actions">
+                            <div class="folder-assign">
+                                <label for="moveFolderSelect" class="sr-only">Move to folder</label>
+                                <select id="moveFolderSelect"
+                                        class="form-control form-control-sm"
+                                        value="@(ActiveModule.FolderId?.ToString() ?? "")"
+                                        @onchange="MoveActiveModuleAsync">
+                                    <option value="">📁 Uncategorized</option>
+                                    @foreach (var folder in Folders)
+                                    {
+                                        <option value="@folder.Id">📁 @folder.Name</option>
+                                    }
+                                </select>
+                            </div>
+
+                            @if (ConfirmingDeleteModule)
+                            {
+                                <button class="btn btn-danger btn-sm" @onclick="DeleteActiveModuleAsync">Confirm Delete</button>
+                                <button class="btn btn-ghost btn-sm" @onclick="() => ConfirmingDeleteModule = false">Cancel</button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-ghost btn-sm danger-text" @onclick="() => ConfirmingDeleteModule = true" title="Delete module">
+                                    Delete
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Study Tabs -->
+                    <div class="study-tabs" role="tablist">
+                        <button class="study-tab @(CurrentTab == StudyTab.Summary ? "active" : "")"
+                                @onclick="() => CurrentTab = StudyTab.Summary">
+                            📖 Summary
+                        </button>
+                        <button class="study-tab @(CurrentTab == StudyTab.Quizzes ? "active" : "")"
+                                @onclick="() => CurrentTab = StudyTab.Quizzes">
+                            ✓ Quizzes <span class="tab-badge">@ActiveModule.Quizzes.Count</span>
+                        </button>
+                        <button class="study-tab @(CurrentTab == StudyTab.Qa ? "active" : "")"
+                                @onclick="() => CurrentTab = StudyTab.Qa">
+                            💬 Q&amp;A Tutor <span class="tab-badge">@ActiveModule.QaMessages.Count(m => m.Role == "user")</span>
+                        </button>
+                    </div>
+
+                    <div class="tab-panel">
+                        @if (CurrentTab == StudyTab.Summary)
+                        {
+                            <SummaryTab Module="ActiveModule"
+                                        OnRegenerateSummary="RegenerateSummaryAsync"
+                                        OnGoToQuizzes="() => CurrentTab = StudyTab.Quizzes"
+                                        OnGoToQa="() => CurrentTab = StudyTab.Qa" />
+                        }
+                        else if (CurrentTab == StudyTab.Quizzes)
+                        {
+                            <QuizzesTab Module="ActiveModule"
+                                        OnGenerateQuiz="GenerateQuizAsync"
+                                        OnSubmitAttempt="SubmitQuizAttemptAsync" />
+                        }
+                        else
+                        {
+                            <QaTab Module="ActiveModule"
+                                   OnAskQuestion="AskQuestionAsync" />
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </main>
+</div>
+
+<NewModuleModal IsOpen="IsNewModuleModalOpen"
+                Folders="Folders"
+                DefaultFolderId="ActiveModule?.FolderId"
+                OnClose="() => IsNewModuleModalOpen = false"
+                OnSubmit="CreateModuleAsync" />
+
+<FolderModal IsOpen="IsFolderModalOpen"
+             EditingFolder="EditingFolder"
+             OnClose="() => IsFolderModalOpen = false"
+             OnSave="SaveFolderAsync" />
+
+@code {
+    private enum StudyTab { Summary, Quizzes, Qa }
+
+    private AppRuntimeStatusDto? RuntimeStatus { get; set; }
+    private List<FolderDto> Folders { get; set; } = [];
+    private List<StudyModuleSummaryDto> Modules { get; set; } = [];
+    private StudyModuleDetailDto? ActiveModule { get; set; }
+
+    private StudyTab CurrentTab { get; set; } = StudyTab.Summary;
+    private bool IsLoadingInitial { get; set; } = true;
+    private bool IsLoadingModule { get; set; }
+    private bool IsNewModuleModalOpen { get; set; }
+    private bool IsFolderModalOpen { get; set; }
+    private FolderDto? EditingFolder { get; set; }
+    private bool ConfirmingDeleteModule { get; set; }
+    private bool IsMobileSidebarOpen { get; set; }
+    private bool IsDarkTheme { get; set; }
+
+    private string? BannerError { get; set; }
+    private string? BannerNotice { get; set; }
+
+    private string AverageBestScoreDisplay
+    {
+        get
+        {
+            var scored = Modules.Where(m => m.BestQuizScorePercent.HasValue).Select(m => m.BestQuizScorePercent!.Value).ToList();
+            return scored.Count == 0 ? "—" : $"{(int)Math.Round(scored.Average())}%";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var statusTask = Api.GetStatusAsync();
+            var foldersTask = Api.GetFoldersAsync();
+            var modulesTask = Api.GetModulesAsync();
+
+            await Task.WhenAll(statusTask, foldersTask, modulesTask);
+
+            RuntimeStatus = statusTask.Result;
+            Folders = foldersTask.Result;
+            Modules = modulesTask.Result;
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Could not connect to the Azure Kyoshi API: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingInitial = false;
+        }
+    }
+
+    private void GoToDashboard()
+    {
+        ActiveModule = null;
+        ConfirmingDeleteModule = false;
+        IsMobileSidebarOpen = false;
+    }
+
+    private void ToggleTheme() => IsDarkTheme = !IsDarkTheme;
+
+    private void OpenNewModuleModal()
+    {
+        IsMobileSidebarOpen = false;
+        IsNewModuleModalOpen = true;
+    }
+
+    private void OpenCreateFolderModal()
+    {
+        EditingFolder = null;
+        IsFolderModalOpen = true;
+    }
+
+    private void OpenEditFolderModal(FolderDto folder)
+    {
+        EditingFolder = folder;
+        IsFolderModalOpen = true;
+    }
+
+    private async Task SelectModuleAsync(Guid moduleId)
+    {
+        IsMobileSidebarOpen = false;
+        ConfirmingDeleteModule = false;
+        BannerError = null;
+        IsLoadingModule = true;
+        try
+        {
+            ActiveModule = await Api.GetModuleDetailAsync(moduleId);
+            CurrentTab = StudyTab.Summary;
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Failed to load module: {ex.Message}";
+        }
+        finally
+        {
+            IsLoadingModule = false;
+        }
+    }
+
+    private async Task CreateModuleAsync(CreateStudyModuleRequest request)
+    {
+        var created = await Api.CreateModuleAsync(request);
+        ActiveModule = created;
+        CurrentTab = StudyTab.Summary;
+        IsNewModuleModalOpen = false;
+        await RefreshListsAsync();
+        BannerNotice = $"Ready to study \"{created.Title}\" — summary and initial {created.Quizzes.FirstOrDefault()?.QuestionCount ?? 5}-question quiz created!";
+    }
+
+    private async Task SaveFolderAsync(CreateFolderRequest request)
+    {
+        if (EditingFolder is null)
+        {
+            await Api.CreateFolderAsync(request);
+            BannerNotice = $"Created folder \"{request.Name}\".";
+        }
+        else
+        {
+            await Api.UpdateFolderAsync(EditingFolder.Id, new UpdateFolderRequest
+            {
+                Name = request.Name,
+                ColorHex = request.ColorHex,
+                CertificationCode = request.CertificationCode
+            });
+            BannerNotice = $"Updated folder \"{request.Name}\".";
+        }
+
+        IsFolderModalOpen = false;
+        await RefreshListsAsync();
+        if (ActiveModule is not null)
+        {
+            ActiveModule = await Api.GetModuleDetailAsync(ActiveModule.Id);
+        }
+    }
+
+    private async Task DeleteFolderAsync(FolderDto folder)
+    {
+        try
+        {
+            await Api.DeleteFolderAsync(folder.Id);
+            await RefreshListsAsync();
+            if (ActiveModule?.FolderId == folder.Id)
+            {
+                ActiveModule = await Api.GetModuleDetailAsync(ActiveModule.Id);
+            }
+            BannerNotice = $"Removed folder \"{folder.Name}\". Any modules inside were kept in Uncategorized.";
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Could not delete folder: {ex.Message}";
+        }
+    }
+
+    private async Task MoveActiveModuleAsync(ChangeEventArgs e)
+    {
+        if (ActiveModule is null) return;
+
+        var raw = e.Value?.ToString();
+        Guid? targetFolderId = Guid.TryParse(raw, out var parsed) ? parsed : null;
+
+        try
+        {
+            await Api.MoveModuleAsync(ActiveModule.Id, targetFolderId);
+            await RefreshListsAsync();
+            ActiveModule = await Api.GetModuleDetailAsync(ActiveModule.Id);
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Could not move module: {ex.Message}";
+        }
+    }
+
+    private async Task RegenerateSummaryAsync(string? focus)
+    {
+        if (ActiveModule is null) return;
+        try
+        {
+            ActiveModule = await Api.RegenerateSummaryAsync(ActiveModule.Id, focus);
+            BannerNotice = "Module summary regenerated.";
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Failed to regenerate summary: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteActiveModuleAsync()
+    {
+        if (ActiveModule is null) return;
+        var title = ActiveModule.Title;
+        try
+        {
+            await Api.DeleteModuleAsync(ActiveModule.Id);
+            ActiveModule = null;
+            ConfirmingDeleteModule = false;
+            await RefreshListsAsync();
+            BannerNotice = $"Deleted module \"{title}\".";
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Failed to delete module: {ex.Message}";
+        }
+    }
+
+    private async Task GenerateQuizAsync(GenerateQuizRequest request)
+    {
+        if (ActiveModule is null) return;
+        try
+        {
+            var newQuiz = await Api.GenerateQuizAsync(ActiveModule.Id, request);
+            ActiveModule.Quizzes.Add(newQuiz);
+            await RefreshListsAsync();
+            BannerNotice = $"Generated \"{newQuiz.Title}\" with {newQuiz.QuestionCount} new questions.";
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Failed to generate quiz: {ex.Message}";
+        }
+    }
+
+    private async Task SubmitQuizAttemptAsync((Guid QuizId, List<int> Answers) submission)
+    {
+        if (ActiveModule is null) return;
+        try
+        {
+            await Api.SubmitQuizAttemptAsync(submission.QuizId, submission.Answers);
+            ActiveModule = await Api.GetModuleDetailAsync(ActiveModule.Id);
+            await RefreshListsAsync();
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Failed to submit quiz: {ex.Message}";
+        }
+    }
+
+    private async Task AskQuestionAsync(string question)
+    {
+        if (ActiveModule is null) return;
+        try
+        {
+            var response = await Api.AskQuestionAsync(ActiveModule.Id, question);
+            ActiveModule.QaMessages.Add(response.UserMessage);
+            ActiveModule.QaMessages.Add(response.AssistantMessage);
+            await RefreshListsAsync();
+        }
+        catch (Exception ex)
+        {
+            BannerError = $"Failed to answer question: {ex.Message}";
+        }
+    }
+
+    private async Task RefreshListsAsync()
+    {
+        var foldersTask = Api.GetFoldersAsync();
+        var modulesTask = Api.GetModulesAsync();
+        await Task.WhenAll(foldersTask, modulesTask);
+        Folders = foldersTask.Result;
+        Modules = modulesTask.Result;
+    }
+}

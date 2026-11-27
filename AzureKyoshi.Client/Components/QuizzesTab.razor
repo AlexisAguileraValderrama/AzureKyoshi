@@ -1,0 +1,318 @@
+<div class="quizzes-layout">
+    <!-- Top Bar: Quiz Selector + Generate Unlimited Quizzes -->
+    <div class="quizzes-toolbar">
+        <div class="quiz-selector-pills">
+            @for (var idx = 0; idx < Module.Quizzes.Count; idx++)
+            {
+                var quiz = Module.Quizzes[idx];
+                var best = quiz.Attempts.Count > 0 ? quiz.Attempts.Max(a => a.ScorePercent) : (int?)null;
+
+                <button class="quiz-tab-pill @(ActiveQuiz?.Id == quiz.Id ? "active" : "")"
+                        @onclick="() => SelectQuiz(quiz.Id)">
+                    <span>@quiz.Title</span>
+                    @if (best.HasValue)
+                    {
+                        <span class="pill-score @(best >= 70 ? "pass" : "warn")">@best%</span>
+                    }
+                    else
+                    {
+                        <span class="pill-score new">@quiz.QuestionCount Q</span>
+                    }
+                </button>
+            }
+        </div>
+
+        <button class="btn btn-primary btn-sm" @onclick="() => ShowGenerator = !ShowGenerator" disabled="@IsGenerating">
+            @(ShowGenerator ? "Close Builder" : "+ Generate New Quiz")
+        </button>
+    </div>
+
+    @if (ShowGenerator)
+    {
+        <div class="quiz-builder-card">
+            <h3>Generate an Additional Practice Quiz</h3>
+            <p class="muted">Create as many fresh quizzes as you want. The AI avoids repeating questions from earlier quizzes in this module.</p>
+
+            <div class="form-grid-3">
+                <div class="form-group">
+                    <label>Number of Questions</label>
+                    <select class="form-control" @bind="NewQuizRequest.QuestionCount" disabled="@IsGenerating">
+                        <option value="5">5 Questions (Quick Check)</option>
+                        <option value="8">8 Questions (Standard)</option>
+                        <option value="10">10 Questions (Deep Dive)</option>
+                        <option value="15">15 Questions (Mini Mock Exam)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Difficulty Level</label>
+                    <select class="form-control" @bind="NewQuizRequest.Difficulty" disabled="@IsGenerating">
+                        <option value="Fundamentals">Fundamentals (900-series)</option>
+                        <option value="Associate">Associate (104 / 204 / 102)</option>
+                        <option value="Expert">Expert (305 / 400 Architecture)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Optional Focus Area</label>
+                    <input class="form-control"
+                           @bind="NewQuizRequest.FocusArea"
+                           placeholder="e.g. Networking, RBAC, CLI, Troubleshooting"
+                           disabled="@IsGenerating" />
+                </div>
+            </div>
+
+            <div class="builder-actions">
+                <button class="btn btn-primary" @onclick="GenerateNewQuizAsync" disabled="@IsGenerating">
+                    @(IsGenerating ? "Generating Fresh Questions..." : "Generate Quiz")
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (ActiveQuiz is null)
+    {
+        <div class="empty-card">
+            <p>No quizzes yet for this module. Click <strong>+ Generate New Quiz</strong> to create one.</p>
+        </div>
+    }
+    else
+    {
+        <div class="quiz-header-card">
+            <div>
+                <h3>@ActiveQuiz.Title</h3>
+                <div class="quiz-submeta">
+                    <span class="status-badge neutral">@ActiveQuiz.Difficulty</span>
+                    <span>@ActiveQuiz.Questions.Count Questions</span>
+                    <span>Created @ActiveQuiz.CreatedAtUtc.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                </div>
+            </div>
+            @if (LatestReviewedAttempt is not null)
+            {
+                <button class="btn btn-secondary" @onclick="RetakeCurrentQuiz">↻ Retake Quiz</button>
+            }
+        </div>
+
+        @if (LatestReviewedAttempt is not null)
+        {
+            var scaledAzureScore = LatestReviewedAttempt.ScorePercent * 10;
+            var passed = scaledAzureScore >= 700;
+
+            <div class="score-banner @(passed ? "pass" : "review")">
+                <div class="score-big">
+                    <span class="score-num">@LatestReviewedAttempt.Score / @LatestReviewedAttempt.TotalQuestions</span>
+                    <span class="score-pct">@LatestReviewedAttempt.ScorePercent% · @scaledAzureScore / 1000</span>
+                </div>
+                <div class="score-msg">
+                    <strong>@(passed ? "Certification Passing Pace!" : "Keep Practicing — Review Explanations Below")</strong>
+                    <p>@(passed
+                        ? "You cleared the 700/1000 Azure exam benchmark. Try generating a harder quiz to solidify mastery."
+                        : "Microsoft Azure certifications require 700/1000 (70%). Check each explanation below or ask the Q&A Tutor.")</p>
+                </div>
+            </div>
+        }
+
+        <div class="questions-stack">
+            @for (var qIndex = 0; qIndex < ActiveQuiz.Questions.Count; qIndex++)
+            {
+                var question = ActiveQuiz.Questions[qIndex];
+                var capturedQIndex = qIndex;
+                var selectedIdx = SelectedAnswers.GetValueOrDefault(capturedQIndex, -1);
+                var isReviewed = LatestReviewedAttempt is not null;
+
+                <div class="question-card @(isReviewed ? (selectedIdx == question.CorrectOptionIndex ? "q-correct" : "q-wrong") : "")">
+                    <div class="question-top">
+                        <span class="question-number">Question @(qIndex + 1) of @ActiveQuiz.Questions.Count</span>
+                        @if (isReviewed)
+                        {
+                            <span class="result-chip @(selectedIdx == question.CorrectOptionIndex ? "pass" : "fail")">
+                                @(selectedIdx == question.CorrectOptionIndex ? "✓ Correct" : "✕ Incorrect")
+                            </span>
+                        }
+                    </div>
+
+                    <p class="question-text">@question.QuestionText</p>
+
+                    <div class="options-list">
+                        @for (var optIdx = 0; optIdx < question.Options.Count; optIdx++)
+                        {
+                            var capturedOptIdx = optIdx;
+                            var optionLetter = (char)('A' + optIdx);
+                            var isSelected = selectedIdx == capturedOptIdx;
+                            var isCorrect = question.CorrectOptionIndex == capturedOptIdx;
+
+                            var optionStateClass = "";
+                            if (isReviewed)
+                            {
+                                if (isCorrect) optionStateClass = "opt-correct";
+                                else if (isSelected) optionStateClass = "opt-wrong";
+                            }
+                            else if (isSelected)
+                            {
+                                optionStateClass = "opt-selected";
+                            }
+
+                            <button type="button"
+                                    class="option-btn @optionStateClass"
+                                    disabled="@isReviewed"
+                                    @onclick="() => SelectOption(capturedQIndex, capturedOptIdx)">
+                                <span class="option-letter">@optionLetter</span>
+                                <span class="option-text">@question.Options[optIdx]</span>
+                            </button>
+                        }
+                    </div>
+
+                    @if (isReviewed)
+                    {
+                        <div class="explanation-box">
+                            <strong>Explanation:</strong> @question.Explanation
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (LatestReviewedAttempt is null)
+        {
+            <div class="quiz-submit-bar">
+                <span class="muted">
+                    Answered <strong>@SelectedAnswers.Count</strong> of <strong>@ActiveQuiz.Questions.Count</strong> questions
+                </span>
+                <button class="btn btn-primary"
+                        @onclick="SubmitCurrentQuizAsync"
+                        disabled="@(IsSubmitting || SelectedAnswers.Count < ActiveQuiz.Questions.Count)">
+                    @(IsSubmitting ? "Grading..." : "Submit Quiz Answers")
+                </button>
+            </div>
+        }
+
+        @if (ActiveQuiz.Attempts.Count > 0)
+        {
+            <div class="attempts-history">
+                <h4>Attempt History (@ActiveQuiz.Attempts.Count)</h4>
+                <div class="attempts-list">
+                    @foreach (var att in ActiveQuiz.Attempts.Take(5))
+                    {
+                        <button class="attempt-chip @(LatestReviewedAttempt?.Id == att.Id ? "active" : "")"
+                                @onclick="() => LoadAttemptForReview(att)">
+                            <span class="score-mini @(att.ScorePercent >= 70 ? "pass" : "warn")">@att.Score/@att.TotalQuestions (@att.ScorePercent%)</span>
+                            <span class="muted">@att.CompletedAtUtc.ToLocalTime().ToString("MMM d, h:mm tt")</span>
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public StudyModuleDetailDto Module { get; set; } = null!;
+    [Parameter] public EventCallback<GenerateQuizRequest> OnGenerateQuiz { get; set; }
+    [Parameter] public EventCallback<(Guid QuizId, List<int> Answers)> OnSubmitAttempt { get; set; }
+
+    private Guid? _activeQuizId;
+    private Guid _lastModuleId;
+    private Dictionary<int, int> SelectedAnswers { get; } = [];
+    private QuizAttemptDto? LatestReviewedAttempt { get; set; }
+
+    private bool ShowGenerator { get; set; }
+    private bool IsGenerating { get; set; }
+    private bool IsSubmitting { get; set; }
+    private GenerateQuizRequest NewQuizRequest { get; set; } = new() { QuestionCount = 5, Difficulty = "Associate" };
+
+    private QuizDto? ActiveQuiz =>
+        Module.Quizzes.FirstOrDefault(q => q.Id == _activeQuizId)
+        ?? Module.Quizzes.FirstOrDefault();
+
+    protected override void OnParametersSet()
+    {
+        if (_lastModuleId != Module.Id)
+        {
+            _lastModuleId = Module.Id;
+            _activeQuizId = Module.Quizzes.FirstOrDefault()?.Id;
+            ResetAnswerState();
+        }
+        else if (_activeQuizId is null || Module.Quizzes.All(q => q.Id != _activeQuizId))
+        {
+            _activeQuizId = Module.Quizzes.LastOrDefault()?.Id;
+            ResetAnswerState();
+        }
+    }
+
+    private void SelectQuiz(Guid quizId)
+    {
+        _activeQuizId = quizId;
+        ResetAnswerState();
+    }
+
+    private void SelectOption(int questionIndex, int optionIndex)
+    {
+        SelectedAnswers[questionIndex] = optionIndex;
+    }
+
+    private void RetakeCurrentQuiz()
+    {
+        ResetAnswerState();
+    }
+
+    private void LoadAttemptForReview(QuizAttemptDto attempt)
+    {
+        LatestReviewedAttempt = attempt;
+        SelectedAnswers.Clear();
+        for (var i = 0; i < attempt.SelectedOptionIndices.Count; i++)
+        {
+            SelectedAnswers[i] = attempt.SelectedOptionIndices[i];
+        }
+    }
+
+    private void ResetAnswerState()
+    {
+        SelectedAnswers.Clear();
+        LatestReviewedAttempt = null;
+    }
+
+    private async Task GenerateNewQuizAsync()
+    {
+        IsGenerating = true;
+        try
+        {
+            var previousIds = Module.Quizzes.Select(q => q.Id).ToHashSet();
+            await OnGenerateQuiz.InvokeAsync(NewQuizRequest);
+            var newlyCreated = Module.Quizzes.FirstOrDefault(q => !previousIds.Contains(q.Id));
+            if (newlyCreated is not null)
+            {
+                _activeQuizId = newlyCreated.Id;
+                ResetAnswerState();
+            }
+            ShowGenerator = false;
+            NewQuizRequest = new GenerateQuizRequest { QuestionCount = 5, Difficulty = NewQuizRequest.Difficulty };
+        }
+        finally
+        {
+            IsGenerating = false;
+        }
+    }
+
+    private async Task SubmitCurrentQuizAsync()
+    {
+        if (ActiveQuiz is null) return;
+
+        IsSubmitting = true;
+        try
+        {
+            var answers = Enumerable.Range(0, ActiveQuiz.Questions.Count)
+                .Select(i => SelectedAnswers.GetValueOrDefault(i, -1))
+                .ToList();
+
+            await OnSubmitAttempt.InvokeAsync((ActiveQuiz.Id, answers));
+
+            // Refresh latest reviewed attempt from updated Module quiz data
+            var refreshedQuiz = Module.Quizzes.FirstOrDefault(q => q.Id == ActiveQuiz.Id);
+            LatestReviewedAttempt = refreshedQuiz?.Attempts.FirstOrDefault();
+        }
+        finally
+        {
+            IsSubmitting = false;
+        }
+    }
+}

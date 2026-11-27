@@ -1,0 +1,19 @@
+# Visual Studio & .NET build outputs
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+TestResults/
+
+# Local secrets & Azure Functions dev settings (never commit!)
+local.settings.json
+appsettings.Development.json
+AzureKyoshi.Api/local.settings.json
+AzureKyoshi.Api/appsettings.Development.json
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

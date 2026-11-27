@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="AzureKyoshi.Shared/AzureKyoshi.Shared.csproj" />
+  <Project Path="AzureKyoshi.Api/AzureKyoshi.Api.csproj" />
+  <Project Path="AzureKyoshi.Client/AzureKyoshi.Client.csproj" />
+</Solution>
