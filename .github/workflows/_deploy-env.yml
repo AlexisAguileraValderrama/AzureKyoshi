@@ -23,19 +23,19 @@ jobs:
 
     steps:
       - name: Download EF Core migration bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: db-bundle
           path: ./artifacts/db
 
       - name: Download Azure Functions package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: api-package
           path: ./artifacts/api
 
       - name: Download Blazor WebAssembly output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: client-wwwroot
           path: ./artifacts/client
