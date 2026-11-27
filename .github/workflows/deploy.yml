@@ -58,21 +58,21 @@ jobs:
             --force
 
       - name: Upload API package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: api-package
           path: ./out/api.zip
           retention-days: 7
 
       - name: Upload Blazor WASM artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: client-wwwroot
           path: ./out/client/wwwroot
           retention-days: 7
 
       - name: Upload EF migration bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: db-bundle
           path: ./out/db/efbundle
