@@ -181,20 +181,26 @@ public sealed class AzureFoundryStudyService(
         try
         {
             var systemPrompt = """
-                You are an Azure certification exam author. Generate realistic multiple-choice practice questions grounded in the provided Microsoft Learn module.
+                You are an expert Microsoft Azure certification exam author. Generate realistic multiple-choice practice questions grounded in the provided Microsoft Learn module.
                 Return ONLY valid JSON with no surrounding markdown fences or commentary, matching this exact schema:
                 {
                   "title": "Short quiz title",
                   "questions": [
                     {
                       "questionText": "Scenario or technical question?",
-                      "options": ["Option A", "Option B", "Option C", "Option D"],
-                      "correctOptionIndex": 0,
-                      "explanation": "Clear explanation of why the correct option is right and why key distractors are wrong."
+                      "options": ["Choice text 1", "Choice text 2", "Choice text 3", "Choice text 4"],
+                      "correctOptionIndex": 2,
+                      "explanation": "Clear explanation naming the correct Azure service/setting and why the distractors are wrong."
                     }
                   ]
                 }
-                Every question MUST have exactly 4 options and correctOptionIndex between 0 and 3.
+
+                CRITICAL EXAM QUALITY RULES:
+                1. Every question MUST have exactly 4 options and correctOptionIndex between 0 and 3.
+                2. STRICT LENGTH & DETAIL PARITY: All 4 options MUST be roughly equal in word count (within ~20% of each other), grammatical structure, and technical specificity. NEVER make the correct answer noticeably longer, more detailed, or more qualified than the 3 distractors.
+                3. PLAUSIBLE DISTRACTORS: Every incorrect option must be a realistic, specific Azure service, SKU, role, or configuration that tests genuine exam understanding (never obviously silly or overly vague).
+                4. STANDALONE OPTIONS: Never use "All of the above", "None of the above", or references to option letters (like "Option A" or "Choice B") in option text or explanations—always refer to the Azure concepts by name.
+                5. Distribute correctOptionIndex across 0, 1, 2, and 3 evenly.
                 """;
 
             var userPrompt = new StringBuilder();
@@ -414,7 +420,62 @@ public sealed class AzureFoundryStudyService(
 
         return new QuizPayload(
             string.IsNullOrWhiteSpace(dto.Title) ? fallbackTitle : dto.Title.Trim(),
-            validQuestions);
+            ShuffleAndBalanceQuestionOptions(validQuestions));
+    }
+
+    /// <summary>
+    /// Eliminates LLM answer-position bias (e.g., always A or B) by shuffling each question's 4 options
+    /// so correct answers are evenly and randomly distributed across A, B, C, and D.
+    /// </summary>
+    private static List<GeneratedQuestionModel> ShuffleAndBalanceQuestionOptions(List<GeneratedQuestionModel> questions)
+    {
+        if (questions.Count == 0)
+        {
+            return questions;
+        }
+
+        // Build a balanced target-slot deck (shuffled blocks of 0..3) so A/B/C/D appear evenly across the quiz
+        var targetSlots = new List<int>(questions.Count);
+        while (targetSlots.Count < questions.Count)
+        {
+            int[] block = [0, 1, 2, 3];
+            Random.Shared.Shuffle(block);
+            targetSlots.AddRange(block);
+        }
+
+        var balanced = new List<GeneratedQuestionModel>(questions.Count);
+        for (var i = 0; i < questions.Count; i++)
+        {
+            var q = questions[i];
+            if (q.Options.Count != 4 ||
+                q.Options.Any(o => o.Contains("of the above", StringComparison.OrdinalIgnoreCase)))
+            {
+                balanced.Add(q);
+                continue;
+            }
+
+            var correctText = q.Options[q.CorrectOptionIndex];
+            var distractors = q.Options
+                .Where((_, idx) => idx != q.CorrectOptionIndex)
+                .ToArray();
+            Random.Shared.Shuffle(distractors);
+
+            var targetIdx = targetSlots[i];
+            var newOptions = new string[4];
+            var dCursor = 0;
+            for (var slot = 0; slot < 4; slot++)
+            {
+                newOptions[slot] = slot == targetIdx ? correctText : distractors[dCursor++];
+            }
+
+            balanced.Add(q with
+            {
+                Options = [.. newOptions],
+                CorrectOptionIndex = targetIdx
+            });
+        }
+
+        return balanced;
     }
 
     private static string BuildDemoSummary(
@@ -600,7 +661,7 @@ public sealed class AzureFoundryStudyService(
             }
         }
 
-        return selected;
+        return ShuffleAndBalanceQuestionOptions(selected);
     }
 
     private static string BuildDemoAnswer(
